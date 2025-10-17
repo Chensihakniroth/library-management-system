@@ -8,40 +8,58 @@ class Librarian {
     public $password;
     public $profile_image;
 
-    public function __construct($db) { $this->conn = $db; }
+    public function __construct($db) { 
+        $this->conn = $db; 
+    }
 
     public function create() {
-        $stmt_check = $this->conn->prepare("SELECT id FROM {$this->table} WHERE email=:email");
-        $stmt_check->execute([':email'=>$this->email]);
-        if($stmt_check->rowCount() > 0) return false;
+        // Check if email already exists
+        $existingLibrarian = $this->getByEmail($this->email);
+        if ($existingLibrarian) {
+            return false;
+        }
 
-        $stmt = $this->conn->prepare("INSERT INTO {$this->table} (name,email,password) VALUES (:name,:email,:password)");
-        return $stmt->execute([
-            ':name'=>$this->name,
-            ':email'=>$this->email,
-            ':password'=>$this->password
-        ]);
+        // Insert new librarian using MySQLi
+        $query = "INSERT INTO " . $this->table . " (name, email, password) VALUES (?, ?, ?)";
+        $stmt = $this->conn->prepare($query);
+        
+        // Bind parameters for MySQLi
+        $stmt->bind_param("sss", $this->name, $this->email, $this->password);
+
+        // Execute query
+        if ($stmt->execute()) {
+            return true;
+        }
+        return false;
     }
 
     public function getByEmail($email) {
-        $stmt = $this->conn->prepare("SELECT * FROM {$this->table} WHERE email=:email");
-        $stmt->execute([':email'=>$email]);
-        return $stmt->fetch(PDO::FETCH_ASSOC);
+        $query = "SELECT * FROM " . $this->table . " WHERE email = ?";
+        $stmt = $this->conn->prepare($query);
+        $stmt->bind_param("s", $email);
+        $stmt->execute();
+        
+        $result = $stmt->get_result();
+        return $result->fetch_assoc();
     }
 
     public function updateProfile($id, $data) {
-        $stmt = $this->conn->prepare("UPDATE {$this->table} SET name=:name, profile_image=:profile_image WHERE id=:id");
-        return $stmt->execute([
-            ':name'=>$data['name'],
-            ':profile_image'=>$data['profile_image'],
-            ':id'=>$id
-        ]);
-    }
-    public function getById($id) {
-    $stmt = $this->conn->prepare("SELECT * FROM {$this->table} WHERE id=:id");
-    $stmt->execute([':id'=>$id]);
-    return $stmt->fetch(PDO::FETCH_ASSOC);
-}
+        $query = "UPDATE " . $this->table . " SET name = ?, profile_image = ? WHERE id = ?";
+        $stmt = $this->conn->prepare($query);
+        
+        $stmt->bind_param("ssi", $data['name'], $data['profile_image'], $id);
 
+        return $stmt->execute();
+    }
+
+    public function getById($id) {
+        $query = "SELECT * FROM " . $this->table . " WHERE id = ?";
+        $stmt = $this->conn->prepare($query);
+        $stmt->bind_param("i", $id);
+        $stmt->execute();
+        
+        $result = $stmt->get_result();
+        return $result->fetch_assoc();
+    }
 }
 ?>

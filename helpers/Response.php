@@ -1,8 +1,8 @@
 <?php
 class Response {
-    public static function json($data, $status=200) {
-        header("Content-Type: application/json");
-        http_response_code($status);
+    public static function json($data, $statusCode = 200) {
+        http_response_code($statusCode);
+        header('Content-Type: application/json');
         echo json_encode($data);
         exit;
     }
