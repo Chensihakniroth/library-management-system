@@ -21,7 +21,7 @@ class BookController {
         $author = trim($data['author']);
         $publishYear = intval($data['publishYear']);
         $ISBN = isset($data['ISBN']) ? trim($data['ISBN']) : '';
-        $page = isset($data['page']) ? intval($data['page']) : null;
+        $pages = isset($data['pages']) ? intval($data['pages']) : null;
         $img = isset($data['img']) ? trim($data['img']) : '/images/default-book.jpg';
 
         // Additional validation
@@ -41,22 +41,22 @@ class BookController {
             return;
         }
 
-        if ($page !== null && $page < 1) {
+        if ($pages !== null && $pages < 1) {
             Response::json(['success' => false, 'message' => 'Invalid page count'], 400);
             return;
         }
 
         try {
             // Use parameterized query to prevent SQL injection
-            $query = "INSERT INTO books (title, author, publishYear, ISBN, page, img) 
-                      VALUES (:title, :author, :publishYear, :ISBN, :page, :img)";
+            $query = "INSERT INTO books (title, author, publishYear, ISBN, pages, img) 
+                      VALUES (:title, :author, :publishYear, :ISBN, :pages, :img)";
             
             $stmt = $this->db->prepare($query);
             $stmt->bindParam(':title', $title);
             $stmt->bindParam(':author', $author);
             $stmt->bindParam(':publishYear', $publishYear, PDO::PARAM_INT);
             $stmt->bindParam(':ISBN', $ISBN);
-            $stmt->bindParam(':page', $page, PDO::PARAM_INT);
+            $stmt->bindParam(':pages', $pages, PDO::PARAM_INT);
             $stmt->bindParam(':img', $img);
             
             if ($stmt->execute()) {
@@ -141,12 +141,12 @@ class BookController {
         $author = trim($data['author']);
         $publishYear = intval($data['publishYear']);
         $ISBN = isset($data['ISBN']) ? trim($data['ISBN']) : '';
-        $page = isset($data['page']) ? intval($data['page']) : null;
+        $pages = isset($data['pages']) ? intval($data['pages']) : null;
         $img = isset($data['img']) ? trim($data['img']) : '/images/default-book.jpg';
 
         try {
             $query = "UPDATE books SET title = :title, author = :author, publishYear = :publishYear, 
-                      ISBN = :ISBN, page = :page, img = :img WHERE id = :id";
+                      ISBN = :ISBN, pages = :pages, img = :img WHERE id = :id";
             
             $stmt = $this->db->prepare($query);
             $stmt->bindParam(':id', $id, PDO::PARAM_INT);
@@ -154,7 +154,7 @@ class BookController {
             $stmt->bindParam(':author', $author);
             $stmt->bindParam(':publishYear', $publishYear, PDO::PARAM_INT);
             $stmt->bindParam(':ISBN', $ISBN);
-            $stmt->bindParam(':page', $page, PDO::PARAM_INT);
+            $stmt->bindParam(':pages', $pages, PDO::PARAM_INT);
             $stmt->bindParam(':img', $img);
             
             if ($stmt->execute()) {
