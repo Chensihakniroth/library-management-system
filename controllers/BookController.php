@@ -1,173 +1,219 @@
 <?php
-require_once __DIR__.'/../models/Book.php';
-
 class BookController {
-    private $book;
-    public function __construct($db) { $this->book = new Book($db); }
+    private $db;
 
-    public function create($data){
-        $this->book->title = $data['title'];
-        $this->book->author = $data['author'];
-        $this->book->status = $data['status'] ?? 'on_shelf';
-        $this->book->img = $data['img'] ?? '';
-        $this->book->publishYear = $data['publishYear'] ?? null;
-        $this->book->ISBN = $data['isbn'] ?? '';
-        $this->book->pages = $data['pages'] ?? null;
-        
-        if($this->book->create()) {
-            http_response_code(201);
-            echo json_encode(['success' => true, 'message' => 'Book added']);
-        } else {
-            http_response_code(400);
-            echo json_encode(['success' => false, 'message' => 'Failed to add book']);
-        }
+    public function __construct($db) {
+        $this->db = $db;
     }
 
-    public function uploadWithImage() {
+    public function create($data) {
+        // Validate required fields
+        if (empty($data['title']) || empty($data['author']) || empty($data['publishYear'])) {
+            Response::json([
+                'success' => false, 
+                'message' => 'Title, Author, and Publish Year are required'
+            ], 400);
+            return;
+        }
+
+        // Sanitize and validate inputs
+        $title = trim($data['title']);
+        $author = trim($data['author']);
+        $publishYear = intval($data['publishYear']);
+        $ISBN = isset($data['ISBN']) ? trim($data['ISBN']) : '';
+        $page = isset($data['page']) ? intval($data['page']) : null;
+        $img = isset($data['img']) ? trim($data['img']) : '/images/default-book.jpg';
+
+        // Additional validation
+        if (strlen($title) > 255) {
+            Response::json(['success' => false, 'message' => 'Title too long'], 400);
+            return;
+        }
+
+        if (strlen($author) > 100) {
+            Response::json(['success' => false, 'message' => 'Author name too long'], 400);
+            return;
+        }
+
+        $currentYear = date('Y');
+        if ($publishYear < 1000 || $publishYear > $currentYear) {
+            Response::json(['success' => false, 'message' => 'Invalid publish year'], 400);
+            return;
+        }
+
+        if ($page !== null && $page < 1) {
+            Response::json(['success' => false, 'message' => 'Invalid page count'], 400);
+            return;
+        }
+
         try {
-            if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-                http_response_code(405);
-                echo json_encode(['success' => false, 'message' => 'Method not allowed']);
-                return;
-            }
-
-            // Get form data
-            $title = $_POST['title'] ?? '';
-            $author = $_POST['author'] ?? '';
-            $publishYear = $_POST['publishYear'] ?? null;
-            $bookCreateAt = $_POST['bookCreateAt'] ?? null;
-            $isbn = $_POST['isbn'] ?? '';
-            $pages = $_POST['pages'] ?? null;
-
-            // Validate required fields
-            if (empty($title) || empty($author)) {
-                http_response_code(400);
-                echo json_encode(['success' => false, 'message' => 'Title and Author are required']);
-                return;
-            }
-
-            // Handle file upload
-            $imagePath = '';
-            if (isset($_FILES['image']) && $_FILES['image']['error'] === UPLOAD_ERR_OK) {
-                $uploadDir = $_SERVER['DOCUMENT_ROOT'] . '/library-management-system/uploads/';
-                
-                if (!is_dir($uploadDir)) {
-                    mkdir($uploadDir, 0777, true);
-                }
-
-                $file = $_FILES['image'];
-                $fileName = time() . '_' . preg_replace("/[^a-zA-Z0-9\.]/", "_", $file['name']);
-                $targetPath = $uploadDir . $fileName;
-
-                $allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif'];
-                $fileType = mime_content_type($file['tmp_name']);
-                
-                if (!in_array($fileType, $allowedTypes)) {
-                    http_response_code(400);
-                    echo json_encode(['success' => false, 'message' => 'Only JPG, JPEG, PNG & GIF files are allowed']);
-                    return;
-                }
-
-                if ($file['size'] > 5 * 1024 * 1024) {
-                    http_response_code(400);
-                    echo json_encode(['success' => false, 'message' => 'File size must be less than 5MB']);
-                    return;
-                }
-
-                if (move_uploaded_file($file['tmp_name'], $targetPath)) {
-                    $imagePath = '/uploads/' . $fileName;
-                } else {
-                    http_response_code(500);
-                    echo json_encode(['success' => false, 'message' => 'Failed to upload image']);
-                    return;
-                }
-            }
-
-            // Create book
-            $this->book->title = $title;
-            $this->book->author = $author;
-            $this->book->status = 'on_shelf';
-            $this->book->img = $imagePath;
-            $this->book->publishYear = $publishYear;
-            $this->book->ISBN = $isbn;
-            $this->book->pages = $pages;
-
-            if ($this->book->create()) {
-                http_response_code(201);
-                echo json_encode([
-                    'success' => true, 
+            // Use parameterized query to prevent SQL injection
+            $query = "INSERT INTO books (title, author, publishYear, ISBN, page, img) 
+                      VALUES (:title, :author, :publishYear, :ISBN, :page, :img)";
+            
+            $stmt = $this->db->prepare($query);
+            $stmt->bindParam(':title', $title);
+            $stmt->bindParam(':author', $author);
+            $stmt->bindParam(':publishYear', $publishYear, PDO::PARAM_INT);
+            $stmt->bindParam(':ISBN', $ISBN);
+            $stmt->bindParam(':page', $page, PDO::PARAM_INT);
+            $stmt->bindParam(':img', $img);
+            
+            if ($stmt->execute()) {
+                Response::json([
+                    'success' => true,
                     'message' => 'Book added successfully',
-                    'data' => [
-                        'title' => $title,
-                        'author' => $author,
-                        'imagePath' => $imagePath
-                    ]
-                ]);
+                    'bookId' => $this->db->lastInsertId()
+                ], 201);
             } else {
-                if ($imagePath && file_exists($_SERVER['DOCUMENT_ROOT'] . $imagePath)) {
-                    unlink($_SERVER['DOCUMENT_ROOT'] . $imagePath);
-                }
-                http_response_code(400);
-                echo json_encode(['success' => false, 'message' => 'Failed to add book to database']);
+                Response::json([
+                    'success' => false, 
+                    'message' => 'Failed to add book to database'
+                ], 500);
             }
-
-        } catch (Exception $e) {
-            error_log('Upload error: ' . $e->getMessage());
-            http_response_code(500);
-            echo json_encode(['success' => false, 'message' => 'Server error: ' . $e->getMessage()]);
+        } catch (PDOException $e) {
+            // Log the error (don't expose database details to client)
+            error_log("Database error in BookController::create: " . $e->getMessage());
+            
+            Response::json([
+                'success' => false, 
+                'message' => 'Database error occurred'
+            ], 500);
         }
     }
 
-    public function getAll(){ 
-        $books = $this->book->getAll();
-        echo json_encode(['success' => true, 'data' => $books]);
-    }
-    
-    public function getById($id){ 
-        $book = $this->book->getById($id);
-        if ($book) {
-            echo json_encode(['success' => true, 'data' => $book]);
-        } else {
-            http_response_code(404);
-            echo json_encode(['success' => false, 'message' => 'Book not found']);
-        }
-    }
-    
-    public function update($data){
-        $this->book->id = $data['id'];
-        $this->book->title = $data['title'];
-        $this->book->author = $data['author'];
-        $this->book->status = $data['status'];
-        $this->book->img = $data['img'] ?? '';
-        $this->book->publishYear = $data['publishYear'] ?? null;
-        $this->book->ISBN = $data['isbn'] ?? '';
-        $this->book->pages = $data['pages'] ?? null;
+    public function getAll() {
+    try {
+        $query = "SELECT * FROM books ORDER BY id DESC";
+        $stmt = $this->db->prepare($query);
+        $stmt->execute();
+        $books = $stmt->fetchAll(PDO::FETCH_ASSOC);
         
-        if($this->book->update()) {
-            echo json_encode(['success' => true, 'message' => 'Book updated']);
-        } else {
-            http_response_code(400);
-            echo json_encode(['success' => false, 'message' => 'Failed to update book']);
+        // Debug: Check what's actually in the database
+        error_log("Books found: " . count($books));
+        foreach ($books as $book) {
+            error_log("Book: " . print_r($book, true));
         }
+        
+        Response::json([
+            'success' => true, 
+            'data' => $books,
+            'count' => count($books) // Add count for debugging
+        ]);
+    } catch (PDOException $e) {
+        error_log("Database error in BookController::getAll: " . $e->getMessage());
+        Response::json([
+            'success' => false, 
+            'message' => 'Failed to retrieve books: ' . $e->getMessage()
+        ], 500);
     }
-    
-    public function delete($id){
-        if($this->book->delete($id)) {
-            echo json_encode(['success' => true, 'message' => 'Book deleted']);
-        } else {
-            http_response_code(400);
-            echo json_encode(['success' => false, 'message' => 'Failed to delete book']);
+}
+
+    public function getById($id) {
+        try {
+            $query = "SELECT * FROM books WHERE id = :id";
+            $stmt = $this->db->prepare($query);
+            $stmt->bindParam(':id', $id, PDO::PARAM_INT);
+            $stmt->execute();
+            $book = $stmt->fetch(PDO::FETCH_ASSOC);
+            
+            if ($book) {
+                Response::json(['success' => true, 'data' => $book]);
+            } else {
+                Response::json(['success' => false, 'message' => 'Book not found'], 404);
+            }
+        } catch (PDOException $e) {
+            error_log("Database error in BookController::getById: " . $e->getMessage());
+            Response::json(['success' => false, 'message' => 'Failed to retrieve book'], 500);
         }
     }
 
-    public function filterByStatus($status){ 
-        $books = $this->book->filterByStatus($status);
-        echo json_encode(['success' => true, 'data' => $books]);
+    public function update($data) {
+        // Similar validation as create method
+        if (empty($data['id']) || empty($data['title']) || empty($data['author']) || empty($data['publishYear'])) {
+            Response::json(['success' => false, 'message' => 'ID, Title, Author, and Publish Year are required'], 400);
+            return;
+        }
+
+        // Sanitize inputs (similar to create method)
+        $id = intval($data['id']);
+        $title = trim($data['title']);
+        $author = trim($data['author']);
+        $publishYear = intval($data['publishYear']);
+        $ISBN = isset($data['ISBN']) ? trim($data['ISBN']) : '';
+        $page = isset($data['page']) ? intval($data['page']) : null;
+        $img = isset($data['img']) ? trim($data['img']) : '/images/default-book.jpg';
+
+        try {
+            $query = "UPDATE books SET title = :title, author = :author, publishYear = :publishYear, 
+                      ISBN = :ISBN, page = :page, img = :img WHERE id = :id";
+            
+            $stmt = $this->db->prepare($query);
+            $stmt->bindParam(':id', $id, PDO::PARAM_INT);
+            $stmt->bindParam(':title', $title);
+            $stmt->bindParam(':author', $author);
+            $stmt->bindParam(':publishYear', $publishYear, PDO::PARAM_INT);
+            $stmt->bindParam(':ISBN', $ISBN);
+            $stmt->bindParam(':page', $page, PDO::PARAM_INT);
+            $stmt->bindParam(':img', $img);
+            
+            if ($stmt->execute()) {
+                Response::json(['success' => true, 'message' => 'Book updated successfully']);
+            } else {
+                Response::json(['success' => false, 'message' => 'Failed to update book'], 500);
+            }
+        } catch (PDOException $e) {
+            error_log("Database error in BookController::update: " . $e->getMessage());
+            Response::json(['success' => false, 'message' => 'Database error occurred'], 500);
+        }
     }
-    
-    public function searchByTitle($title){ 
-        $books = $this->book->searchByTitle($title);
-        echo json_encode(['success' => true, 'data' => $books]);
+
+    public function delete($id) {
+        try {
+            $query = "DELETE FROM books WHERE id = :id";
+            $stmt = $this->db->prepare($query);
+            $stmt->bindParam(':id', $id, PDO::PARAM_INT);
+            
+            if ($stmt->execute()) {
+                Response::json(['success' => true, 'message' => 'Book deleted successfully']);
+            } else {
+                Response::json(['success' => false, 'message' => 'Failed to delete book'], 500);
+            }
+        } catch (PDOException $e) {
+            error_log("Database error in BookController::delete: " . $e->getMessage());
+            Response::json(['success' => false, 'message' => 'Database error occurred'], 500);
+        }
+    }
+
+    public function filterByStatus($status) {
+        try {
+            $query = "SELECT * FROM books WHERE status = :status ORDER BY id DESC";
+            $stmt = $this->db->prepare($query);
+            $stmt->bindParam(':status', $status);
+            $stmt->execute();
+            $books = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            
+            Response::json(['success' => true, 'data' => $books]);
+        } catch (PDOException $e) {
+            error_log("Database error in BookController::filterByStatus: " . $e->getMessage());
+            Response::json(['success' => false, 'message' => 'Failed to filter books'], 500);
+        }
+    }
+
+    public function searchByTitle($title) {
+        try {
+            $searchTerm = '%' . $title . '%';
+            $query = "SELECT * FROM books WHERE title LIKE :title ORDER BY id DESC";
+            $stmt = $this->db->prepare($query);
+            $stmt->bindParam(':title', $searchTerm);
+            $stmt->execute();
+            $books = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            
+            Response::json(['success' => true, 'data' => $books]);
+        } catch (PDOException $e) {
+            error_log("Database error in BookController::searchByTitle: " . $e->getMessage());
+            Response::json(['success' => false, 'message' => 'Failed to search books'], 500);
+        }
     }
 }
 ?>
