@@ -208,15 +208,32 @@ try {
         // Bind parameters dynamically
         $stmt->bind_param($updateTypes, ...$updateParams);
         
+        // IMPROVED UPDATE EXECUTION WITH AFFECTED ROWS CHECK
         if ($stmt->execute()) {
-            error_log("Book updated successfully, ID: " . $bookId);
-            json_response([
-                'success' => true,
-                'message' => 'Book updated successfully',
-                'bookId' => $bookId
-            ]);
+            $affectedRows = $stmt->affected_rows;
+            $stmt->close();
+            
+            if ($affectedRows > 0) {
+                error_log("Book updated successfully, ID: " . $bookId . ", Affected rows: " . $affectedRows);
+                json_response([
+                    'success' => true,
+                    'message' => 'Book updated successfully',
+                    'bookId' => $bookId,
+                    'affectedRows' => $affectedRows
+                ]);
+            } else {
+                error_log("No changes made to book ID: " . $bookId);
+                json_response([
+                    'success' => true,
+                    'message' => 'No changes detected',
+                    'bookId' => $bookId,
+                    'affectedRows' => 0
+                ]);
+            }
         } else {
-            throw new Exception('Failed to update book: ' . $stmt->error);
+            $error = $stmt->error;
+            $stmt->close();
+            throw new Exception('Failed to update book: ' . $error);
         }
         exit;
     }
