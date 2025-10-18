@@ -88,6 +88,7 @@ try {
     }
     
     // ---- BOOK ROUTES ----
+    // GET all books
     if ($path === '/books' && $method === 'GET') {
         error_log("Routing to get all books");
         // Simple direct database query using MySQLi
@@ -109,6 +110,149 @@ try {
         } else {
             throw new Exception('Failed to fetch books: ' . $db->error);
         }
+    }
+    
+    // GET single book by ID
+    if (preg_match('#^/books/(\d+)$#', $path, $matches) && $method === 'GET') {
+        $bookId = $matches[1];
+        error_log("Routing to get book by ID: " . $bookId);
+        
+        $query = "SELECT * FROM books WHERE id = ?";
+        $stmt = $db->prepare($query);
+        $stmt->bind_param('i', $bookId);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        $book = $result->fetch_assoc();
+        
+        if ($book) {
+            json_response([
+                'success' => true,
+                'data' => $book
+            ]);
+        } else {
+            json_response(['success' => false, 'message' => 'Book not found'], 404);
+        }
+        exit;
+    }
+    
+    // UPDATE book by ID - ONLY ALLOW SPECIFIC FIELDS
+    if (preg_match('#^/books/(\d+)$#', $path, $matches) && $method === 'PUT') {
+        $bookId = $matches[1];
+        error_log("Routing to update book ID: " . $bookId);
+        
+        // Get raw input
+        $rawInput = file_get_contents("php://input");
+        error_log("Raw input for update: " . $rawInput);
+        
+        $input = json_decode($rawInput, true);
+        
+        if (json_last_error() !== JSON_ERROR_NONE) {
+            throw new Exception('Invalid JSON: ' . json_last_error_msg());
+        }
+        
+        error_log("Decoded update input: " . print_r($input, true));
+        
+        // Check if book exists
+        $checkQuery = "SELECT id FROM books WHERE id = ?";
+        $checkStmt = $db->prepare($checkQuery);
+        $checkStmt->bind_param('i', $bookId);
+        $checkStmt->execute();
+        $checkResult = $checkStmt->get_result();
+        
+        if ($checkResult->num_rows === 0) {
+            json_response(['success' => false, 'message' => 'Book not found'], 404);
+        }
+        
+        // Build update query - ONLY ALLOW SPECIFIC FIELDS (no status, copies, etc.)
+        $updateFields = [];
+        $updateParams = [];
+        $updateTypes = '';
+        
+        // Only these fields are allowed to be updated
+        $allowedFields = ['title', 'author', 'publishYear', 'ISBN', 'pages', 'img'];
+        
+        foreach ($allowedFields as $field) {
+            if (isset($input[$field])) {
+                $updateFields[] = "$field = ?";
+                $updateParams[] = $input[$field];
+                
+                // Set parameter type: 'i' for integers, 's' for strings
+                if ($field === 'publishYear' || $field === 'pages') {
+                    $updateTypes .= 'i'; // integer
+                } else {
+                    $updateTypes .= 's'; // string
+                }
+                
+                error_log("Adding field to update: $field = " . $input[$field]);
+            }
+        }
+        
+        if (empty($updateFields)) {
+            json_response(['success' => false, 'message' => 'No valid fields to update'], 400);
+        }
+        
+        // Add bookId to params
+        $updateParams[] = $bookId;
+        $updateTypes .= 'i';
+        
+        $query = "UPDATE books SET " . implode(', ', $updateFields) . " WHERE id = ?";
+        error_log("Update SQL: " . $query);
+        error_log("Update params: " . print_r($updateParams, true));
+        error_log("Update types: " . $updateTypes);
+        
+        $stmt = $db->prepare($query);
+        if (!$stmt) {
+            throw new Exception('Failed to prepare statement: ' . $db->error);
+        }
+        
+        // Bind parameters dynamically
+        $stmt->bind_param($updateTypes, ...$updateParams);
+        
+        if ($stmt->execute()) {
+            error_log("Book updated successfully, ID: " . $bookId);
+            json_response([
+                'success' => true,
+                'message' => 'Book updated successfully',
+                'bookId' => $bookId
+            ]);
+        } else {
+            throw new Exception('Failed to update book: ' . $stmt->error);
+        }
+        exit;
+    }
+    
+    // DELETE book by ID
+    if (preg_match('#^/books/(\d+)$#', $path, $matches) && $method === 'DELETE') {
+        $bookId = $matches[1];
+        error_log("Routing to delete book ID: " . $bookId);
+        
+        // Check if book exists
+        $checkQuery = "SELECT id FROM books WHERE id = ?";
+        $checkStmt = $db->prepare($checkQuery);
+        $checkStmt->bind_param('i', $bookId);
+        $checkStmt->execute();
+        $checkResult = $checkStmt->get_result();
+        
+        if ($checkResult->num_rows === 0) {
+            json_response(['success' => false, 'message' => 'Book not found'], 404);
+        }
+        
+        // Delete the book
+        $query = "DELETE FROM books WHERE id = ?";
+        $stmt = $db->prepare($query);
+        $stmt->bind_param('i', $bookId);
+        
+        if ($stmt->execute()) {
+            error_log("Book deleted successfully, ID: " . $bookId);
+            json_response([
+                'success' => true,
+                'message' => 'Book deleted successfully',
+                'bookId' => $bookId
+            ]);
+        } else {
+            throw new Exception('Failed to delete book: ' . $stmt->error);
+        }
+        exit;
     }
     
     // Handle file upload for book creation - THIS MUST COME FIRST
@@ -158,7 +302,7 @@ try {
         error_log("Binding params: title=$title, author=$author, publishYear=$publishYear, ISBN=$ISBN, pages=$pages, img=$img");
         
         $stmt->bind_param(
-            'ssisis', 
+            'ssisss', 
             $title,
             $author,
             $publishYear,
@@ -364,7 +508,7 @@ function handleBookUpload($db) {
         error_log("Binding params: title=$title, author=$author, publishYear=$publishYear, ISBN=$ISBN, pages=$pages, img=$imagePath");
         
         $stmt->bind_param(
-            'ssisis', 
+            'ssisss', 
             $title,
             $publishYear,
             $author,
